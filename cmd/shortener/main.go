@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,24 +13,57 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/vexterAA/url-shortener/internal/core/links"
 	"github.com/vexterAA/url-shortener/internal/httpapi"
 	"github.com/vexterAA/url-shortener/internal/storage/inmemory"
+	"github.com/vexterAA/url-shortener/internal/storage/postgres"
 )
 
 func main() {
+	storage := flag.String("storage", "memory", "storage type (memory or postgres)")
+	flag.Parse()
+
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(logger); err != nil {
+	if err := run(logger, *storage); err != nil {
 		logger.Error("run HTTP server", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
+func run(logger *slog.Logger, storage string) error {
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	service := links.NewService(inmemory.New())
+	var repo links.Repository
+	switch storage {
+	case "memory":
+		repo = inmemory.New()
+	case "postgres":
+		databaseURL := os.Getenv("DATABASE_URL")
+		if databaseURL == "" {
+			return errors.New("DATABASE_URL is required when -storage=postgres")
+		}
+		config, err := pgx.ParseConfig(databaseURL)
+		if err != nil {
+			return errors.New("invalid DATABASE_URL")
+		}
+		db := stdlib.OpenDB(*config)
+		defer db.Close()
+
+		pingCtx, cancel := context.WithTimeout(signalCtx, 5*time.Second)
+		err = db.PingContext(pingCtx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("ping postgres: %w", err)
+		}
+		repo = postgres.New(db)
+	default:
+		return fmt.Errorf("unsupported storage %q, use memory or postgres", storage)
+	}
+
+	service := links.NewService(repo)
 	server := &http.Server{
 		Addr:              ":8080",
 		Handler:           httpapi.NewMux(service, logger),
@@ -43,7 +77,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("listen for HTTP: %w", err)
 	}
 
-	logger.Info("HTTP server listening", "addr", listener.Addr().String(), "storage", "in-memory")
+	logger.Info("HTTP server listening", "addr", listener.Addr().String(), "storage", storage)
 	serverErr := make(chan error, 1)
 	go func() {
 		serverErr <- server.Serve(listener)
