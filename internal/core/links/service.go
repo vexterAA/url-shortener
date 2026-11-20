@@ -25,6 +25,11 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) Shorten(ctx context.Context, rawURL string) (string, error) {
+	const maxURLBytes = 2048
+	if len(rawURL) > maxURLBytes {
+		return "", ErrInvalidURL
+	}
+
 	// разбираем URL для проверки, в хранилище передаём исходную строку
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Hostname() == "" || strings.ContainsRune(rawURL, ' ') {

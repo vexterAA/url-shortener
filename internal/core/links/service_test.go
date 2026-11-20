@@ -3,6 +3,7 @@ package links_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vexterAA/url-shortener/internal/core/entities"
@@ -49,6 +50,18 @@ func TestShorten(t *testing.T) {
 	if resolvedURL != originalURL {
 		t.Errorf("Resolve(%q) = %q, want %q", code, resolvedURL, originalURL)
 	}
+
+	t.Run("URL byte limit", func(t *testing.T) {
+		const prefix = "https://example.org/"
+		url := prefix + strings.Repeat("я", (2048-len(prefix))/len("я"))
+
+		if _, err := service.Shorten(t.Context(), url); err != nil {
+			t.Fatalf("Shorten() for URL of 2048 bytes error = %v", err)
+		}
+		if _, err := service.Shorten(t.Context(), url+"a"); !errors.Is(err, links.ErrInvalidURL) {
+			t.Errorf("Shorten() for URL of 2049 bytes error = %v, want ErrInvalidURL", err)
+		}
+	})
 }
 
 func TestShortenInvalidURL(t *testing.T) {

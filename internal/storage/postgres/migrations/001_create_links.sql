@@ -1,0 +1,4 @@
+CREATE TABLE links (
+    code TEXT PRIMARY KEY,
+    url TEXT NOT NULL UNIQUE
+);
