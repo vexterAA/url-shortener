@@ -1,0 +1,29 @@
+services:
+  shortener:
+    build: .
+    command: ["-storage=postgres"]
+    environment:
+      DATABASE_URL: postgres://shortener:shortener@postgres:5432/shortener?sslmode=disable
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shortener
+      POSTGRES_PASSWORD: shortener
+      POSTGRES_DB: shortener
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "shortener", "-d", "shortener"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./internal/storage/postgres/migrations/001_create_links.sql:/docker-entrypoint-initdb.d/001_create_links.sql:ro
+
+volumes:
+  postgres_data:
